@@ -1,0 +1,12 @@
+﻿pandas
+numpy
+scikit-learn
+joblib
+psycopg2-binary
+django
+djangorestframework
+python-dotenv
+gunicorn
+supabase
+django-environ
+requests

@@ -1,0 +1,12 @@
+.venv/
+.model_cache/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+.env
+.env.local
+
+db.sqlite3
+staticfiles/

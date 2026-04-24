@@ -1,0 +1,37 @@
+services:
+  - type: web
+    name: kpi-ml-service
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DEBUG
+        value: "False"
+      - key: ALLOWED_HOSTS
+        value: "kpi-ml-service.onrender.com"
+      - key: DATABASE_URL
+        sync: false          # вводишь вручную в Render dashboard
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: SUPABASE_BUCKET
+        value: "ml-models"
+      - key: ML_API_KEY
+        sync: false
+      - key: ML_MAX_PREDICT_BATCH
+        value: "1000"
+      - key: ML_EXCLUDED_ROLES
+        value: "HR,ADMIN,COMMISSION"
+      - key: ML_BOOTSTRAP_ON_START
+        value: "true"
+      - key: ML_BOOTSTRAP_LOAD_DATASET
+        value: "true"
+      - key: ML_BOOTSTRAP_TRAIN
+        value: "true"
+      - key: ML_BOOTSTRAP_MODEL_TYPE
+        value: "random_forest"
+      - key: ML_BOOTSTRAP_STRICT
+        value: "false"
+    healthCheckPath: /api/health/
