@@ -3,6 +3,7 @@ from pathlib import Path
 
 from django.core.management import call_command
 from django.core.management.base import BaseCommand
+from django.db import connection
 
 from predictions.models import KPIRecord, ModelVersion
 
@@ -85,6 +86,7 @@ class Command(BaseCommand):
             model_types.append(primary_model_type)
 
         self.stdout.write("[bootstrap_ml] Starting bootstrap checks")
+        self._log_db_context()
 
         try:
             if load_enabled:
@@ -102,6 +104,21 @@ class Command(BaseCommand):
             self.stderr.write(self.style.WARNING(f"[bootstrap_ml] Non-fatal error: {exc}"))
 
         self.stdout.write(self.style.SUCCESS("[bootstrap_ml] Bootstrap finished"))
+
+    def _log_db_context(self):
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT current_database(), current_user, current_schema(), current_setting('search_path')"
+                )
+                current_database, current_user, current_schema, search_path = cursor.fetchone()
+            self.stdout.write(
+                "[bootstrap_ml] DB context: "
+                f"database={current_database}, user={current_user}, "
+                f"current_schema={current_schema}, search_path={search_path}"
+            )
+        except Exception as exc:
+            self.stderr.write(self.style.WARNING(f"[bootstrap_ml] DB context probe failed: {exc}"))
 
     def _load_dataset_if_needed(self, dataset_path: Path):
         if KPIRecord.objects.exists():
