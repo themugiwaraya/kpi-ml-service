@@ -15,6 +15,7 @@ import joblib
 from datetime import datetime
 from django.conf import settings
 from django.db import IntegrityError, transaction
+from django.db.utils import OperationalError, ProgrammingError
 from django.utils import timezone
 from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import RandomForestRegressor
@@ -166,7 +167,14 @@ def get_active_pipeline():
             return _active_pipeline
 
         from .models import ModelVersion
-        version = ModelVersion.objects.filter(status="active").order_by("-trained_at").first()
+        try:
+            version = ModelVersion.objects.filter(status="active").order_by("-trained_at").first()
+        except (ProgrammingError, OperationalError) as exc:
+            logger.exception("Active model lookup failed due to DB schema/table issue")
+            raise RuntimeError(
+                "Model tables are unavailable in current DB schema. "
+                "Check DB_SEARCH_PATH and run migrations/bootstrap in the target schema."
+            ) from exc
 
         if version is None:
             raise RuntimeError("No active model found. Run training first via Django Admin.")
