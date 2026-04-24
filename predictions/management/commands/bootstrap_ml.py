@@ -8,6 +8,7 @@ from predictions.models import KPIRecord, ModelVersion
 
 
 TRUE_VALUES = {"1", "true", "yes", "on"}
+VALID_MODEL_TYPES = ("random_forest", "linear_regression")
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -15,6 +16,24 @@ def _env_bool(name: str, default: bool) -> bool:
     if raw is None:
         return default
     return raw.strip().lower() in TRUE_VALUES
+
+
+def _parse_model_types(raw: str) -> list[str]:
+    if not raw:
+        return []
+
+    parsed: list[str] = []
+    for item in raw.split(","):
+        model_type = item.strip().lower()
+        if not model_type:
+            continue
+        if model_type not in VALID_MODEL_TYPES:
+            raise ValueError(
+                f"Unsupported model type '{model_type}'. Allowed: {', '.join(VALID_MODEL_TYPES)}"
+            )
+        if model_type not in parsed:
+            parsed.append(model_type)
+    return parsed
 
 
 class Command(BaseCommand):
@@ -28,11 +47,24 @@ class Command(BaseCommand):
             help="Path to seed dataset CSV",
         )
         parser.add_argument(
+            "--model-types",
+            type=str,
+            default=os.getenv("ML_BOOTSTRAP_MODEL_TYPES", ""),
+            help="Comma-separated model types to train on first bootstrap",
+        )
+        parser.add_argument(
             "--model-type",
             type=str,
             default=os.getenv("ML_BOOTSTRAP_MODEL_TYPE", "random_forest"),
-            choices=["random_forest", "linear_regression"],
+            choices=VALID_MODEL_TYPES,
             help="Initial model type to train if no active model exists",
+        )
+        parser.add_argument(
+            "--primary-model-type",
+            type=str,
+            default=os.getenv("ML_BOOTSTRAP_PRIMARY_MODEL_TYPE", ""),
+            choices=VALID_MODEL_TYPES,
+            help="Model type that should remain active after first bootstrap",
         )
         parser.add_argument("--skip-load", action="store_true", help="Skip dataset load step")
         parser.add_argument("--skip-train", action="store_true", help="Skip initial training step")
@@ -43,7 +75,14 @@ class Command(BaseCommand):
         train_enabled = _env_bool("ML_BOOTSTRAP_TRAIN", True) and not options["skip_train"]
 
         dataset_path = Path(options["dataset"])
-        model_type = options["model_type"]
+        model_types = _parse_model_types(options.get("model_types") or "")
+        fallback_model_type = options["model_type"]
+        if not model_types:
+            model_types = [fallback_model_type]
+
+        primary_model_type = (options.get("primary_model_type") or fallback_model_type).strip().lower()
+        if primary_model_type not in model_types:
+            model_types.append(primary_model_type)
 
         self.stdout.write("[bootstrap_ml] Starting bootstrap checks")
 
@@ -54,7 +93,7 @@ class Command(BaseCommand):
                 self.stdout.write("[bootstrap_ml] Dataset load step skipped")
 
             if train_enabled:
-                self._train_model_if_needed(model_type)
+                self._train_models_if_needed(model_types, primary_model_type)
             else:
                 self.stdout.write("[bootstrap_ml] Model training step skipped")
         except Exception as exc:  # pragma: no cover - defensive startup guard
@@ -80,7 +119,7 @@ class Command(BaseCommand):
         self.stdout.write(f"[bootstrap_ml] Loading seed dataset from {dataset_path}")
         call_command("load_dataset", csv=str(dataset_path))
 
-    def _train_model_if_needed(self, model_type: str):
+    def _train_models_if_needed(self, model_types: list[str], primary_model_type: str):
         if ModelVersion.objects.filter(status="active").exists():
             self.stdout.write("[bootstrap_ml] Active model already exists; skip training")
             return
@@ -96,5 +135,8 @@ class Command(BaseCommand):
             )
             return
 
-        self.stdout.write(f"[bootstrap_ml] Training initial model ({model_type})")
-        call_command("train_model", model_type=model_type)
+        ordered_types = [m for m in model_types if m != primary_model_type] + [primary_model_type]
+        self.stdout.write(f"[bootstrap_ml] Training initial models: {', '.join(ordered_types)}")
+        for model_type in ordered_types:
+            self.stdout.write(f"[bootstrap_ml] Training initial model ({model_type})")
+            call_command("train_model", model_type=model_type)
