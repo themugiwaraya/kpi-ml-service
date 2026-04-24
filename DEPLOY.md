@@ -84,7 +84,7 @@ Shell на Render не нужен:
 2. Затем запускается `python manage.py bootstrap_ml`
 3. `bootstrap_ml` делает idempotent шаги:
   - загружает `kpi_dataset.csv` в `kpi_dataset`, только если таблица пуста
-  - обучает стартовые модели из `ML_BOOTSTRAP_MODEL_TYPES`, только если нет активной версии модели
+  - дообучает отсутствующие модели из `ML_BOOTSTRAP_MODEL_TYPES` (если какой-то тип уже есть, повторно не обучает)
   - модель из `ML_BOOTSTRAP_PRIMARY_MODEL_TYPE` тренируется последней и становится активной
 4. После этого стартует Gunicorn
 

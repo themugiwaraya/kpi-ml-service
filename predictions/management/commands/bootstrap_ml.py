@@ -120,8 +120,14 @@ class Command(BaseCommand):
         call_command("load_dataset", csv=str(dataset_path))
 
     def _train_models_if_needed(self, model_types: list[str], primary_model_type: str):
-        if ModelVersion.objects.filter(status="active").exists():
-            self.stdout.write("[bootstrap_ml] Active model already exists; skip training")
+        existing_types = set(
+            ModelVersion.objects.values_list("model_type", flat=True).distinct()
+        )
+        missing_types = [model_type for model_type in model_types if model_type not in existing_types]
+
+        if not missing_types:
+            self.stdout.write("[bootstrap_ml] All configured model types already exist; skip training")
+            self._ensure_primary_active(primary_model_type)
             return
 
         years = list(
@@ -135,8 +141,43 @@ class Command(BaseCommand):
             )
             return
 
-        ordered_types = [m for m in model_types if m != primary_model_type] + [primary_model_type]
-        self.stdout.write(f"[bootstrap_ml] Training initial models: {', '.join(ordered_types)}")
+        ordered_types = [m for m in missing_types if m != primary_model_type]
+        if primary_model_type in missing_types:
+            ordered_types.append(primary_model_type)
+
+        self.stdout.write(f"[bootstrap_ml] Training missing models: {', '.join(ordered_types)}")
         for model_type in ordered_types:
             self.stdout.write(f"[bootstrap_ml] Training initial model ({model_type})")
             call_command("train_model", model_type=model_type)
+
+        self._ensure_primary_active(primary_model_type)
+
+    def _ensure_primary_active(self, primary_model_type: str):
+        latest_primary = ModelVersion.objects.filter(model_type=primary_model_type).order_by(
+            "-trained_at", "-created_at"
+        ).first()
+        if not latest_primary:
+            self.stderr.write(
+                self.style.WARNING(
+                    f"[bootstrap_ml] Primary model type '{primary_model_type}' not found; keep current active model"
+                )
+            )
+            return
+
+        current_active = ModelVersion.objects.filter(status="active").order_by(
+            "-trained_at", "-created_at"
+        ).first()
+        if current_active and current_active.id == latest_primary.id:
+            self.stdout.write(
+                f"[bootstrap_ml] Primary model already active: {latest_primary.version}"
+            )
+            return
+
+        ModelVersion.objects.filter(status="active").exclude(id=latest_primary.id).update(status="archived")
+        if latest_primary.status != "active":
+            latest_primary.status = "active"
+            latest_primary.save(update_fields=["status"])
+
+        self.stdout.write(
+            f"[bootstrap_ml] Active model set to primary type '{primary_model_type}': {latest_primary.version}"
+        )
