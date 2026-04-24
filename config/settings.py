@@ -58,11 +58,24 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "config.wsgi.application"
 
-DATABASES = {
-    "default": env.db(
-        "DATABASE_URL",
-        default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
+db_config = env.db(
+    "DATABASE_URL",
+    default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
+)
+
+db_search_path = env("DB_SEARCH_PATH", default="").strip()
+if "postgresql" in (db_config.get("ENGINE") or "") and db_search_path:
+    db_options = db_config.setdefault("OPTIONS", {})
+    existing_options = (db_options.get("options") or "").strip()
+    search_path_option = f"-c search_path={db_search_path}"
+    db_options["options"] = (
+        f"{existing_options} {search_path_option}".strip()
+        if existing_options
+        else search_path_option
     )
+
+DATABASES = {
+    "default": db_config,
 }
 
 LANGUAGE_CODE = "en-us"

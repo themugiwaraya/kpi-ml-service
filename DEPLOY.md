@@ -58,6 +58,7 @@ SECRET_KEY          = (сгенерируй случайную строку)
 DEBUG               = False
 ALLOWED_HOSTS       = kpi-ml-service.onrender.com
 DATABASE_URL        = postgresql://postgres.USER:PASSWORD@...
+DB_SEARCH_PATH      = ml
 SUPABASE_URL        = https://xxx.supabase.co
 SUPABASE_SERVICE_KEY = eyJhbGci...
 SUPABASE_BUCKET     = ml-models
