@@ -64,6 +64,7 @@ db_config = env.db(
 )
 
 db_search_path = env("DB_SEARCH_PATH", default="").strip()
+DB_SEARCH_PATH = db_search_path
 if "postgresql" in (db_config.get("ENGINE") or "") and db_search_path:
     db_options = db_config.setdefault("OPTIONS", {})
     existing_options = (db_options.get("options") or "").strip()
