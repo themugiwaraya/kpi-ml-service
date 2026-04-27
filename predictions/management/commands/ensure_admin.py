@@ -2,6 +2,8 @@ import os
 
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
+from django.db import connection
+from django.db.utils import OperationalError, ProgrammingError
 
 
 TRUE_VALUES = {"1", "true", "yes", "on"}
@@ -16,6 +18,15 @@ def _env_bool(name: str, default: bool) -> bool:
 
 class Command(BaseCommand):
     help = "Create/update Django superuser from environment variables"
+
+    def _user_table_available(self, table_name: str) -> bool:
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT to_regclass(%s)", [table_name])
+                row = cursor.fetchone()
+            return bool(row and row[0])
+        except (ProgrammingError, OperationalError):
+            return False
 
     def handle(self, *args, **options):
         enabled = _env_bool("DJANGO_SUPERUSER_CREATE", False)
@@ -40,7 +51,24 @@ class Command(BaseCommand):
             return
 
         User = get_user_model()
-        user = User.objects.filter(username=username).first()
+        if not self._user_table_available(User._meta.db_table):
+            message = (
+                f"[ensure_admin] User table '{User._meta.db_table}' is not visible in current schema/search_path. "
+                "Skipping admin bootstrap."
+            )
+            if strict:
+                raise RuntimeError(message)
+            self.stderr.write(self.style.WARNING(message))
+            return
+
+        try:
+            user = User.objects.filter(username=username).first()
+        except (ProgrammingError, OperationalError) as exc:
+            message = f"[ensure_admin] User lookup failed: {exc}"
+            if strict:
+                raise RuntimeError(message) from exc
+            self.stderr.write(self.style.WARNING(message))
+            return
 
         if user is None:
             User.objects.create_superuser(username=username, email=email, password=password)
