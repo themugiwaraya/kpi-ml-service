@@ -31,8 +31,8 @@ class Migration(migrations.Migration):
             options={
                 'db_table': 'ml_prediction_snapshots',
                 'ordering': ['-target_year', 'scope', 'scope_key'],
-                'indexes': [models.Index(fields=['target_year', 'scope'], name='idx_ml_snapshots_year_scope'), models.Index(fields=['department', 'target_year'], name='idx_ml_snapshots_department_year'), models.Index(fields=['role', 'target_year'], name='idx_ml_snapshots_role_year'), models.Index(fields=['teacher_id', 'target_year'], name='idx_ml_snapshots_teacher_year')],
-                'constraints': [models.UniqueConstraint(fields=('target_year', 'scope', 'scope_key'), name='uq_ml_prediction_snapshots_target_scope_key')],
+                'indexes': [models.Index(fields=['target_year', 'scope'], name='idx_ml_snapshots_year_scope'), models.Index(fields=['department', 'target_year'], name='idx_ml_snap_dep_year'), models.Index(fields=['role', 'target_year'], name='idx_ml_snapshots_role_year'), models.Index(fields=['teacher_id', 'target_year'], name='idx_ml_snapshots_teacher_year')],
+                'constraints': [models.UniqueConstraint(fields=('target_year', 'scope', 'scope_key'), name='uq_ml_snap_target_scope_key')],
             },
         ),
     ]
