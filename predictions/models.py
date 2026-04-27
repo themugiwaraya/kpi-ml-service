@@ -130,3 +130,60 @@ class FinalizeRequest(models.Model):
 
     def __str__(self):
         return f"{self.idempotency_key} | {self.year} | {self.status}"
+
+
+class PredictionSnapshot(models.Model):
+    """
+    Предрасчитанные прогнозы на целевой год по разным срезам.
+    Используются для быстрых ответов фронту без повторного запуска модели.
+    """
+
+    SCOPE_CHOICES = [
+        ("overall", "Overall"),
+        ("department", "Department"),
+        ("role", "Role"),
+        ("department_role", "Department + Role"),
+        ("teacher", "Teacher"),
+    ]
+
+    target_year = models.IntegerField()
+    base_year = models.IntegerField()
+    scope = models.CharField(max_length=30, choices=SCOPE_CHOICES)
+    scope_key = models.CharField(max_length=255)
+
+    department = models.CharField(max_length=200, blank=True)
+    role = models.CharField(max_length=50, blank=True)
+    teacher_id = models.IntegerField(null=True, blank=True)
+
+    predicted_kpi = models.FloatField()
+    records_count = models.IntegerField(default=0)
+
+    model_version = models.ForeignKey(
+        ModelVersion,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="snapshots",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "ml_prediction_snapshots"
+        ordering = ["-target_year", "scope", "scope_key"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["target_year", "scope", "scope_key"],
+                name="uq_ml_prediction_snapshots_target_scope_key",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["target_year", "scope"], name="idx_ml_snapshots_year_scope"),
+            models.Index(fields=["department", "target_year"], name="idx_ml_snapshots_department_year"),
+            models.Index(fields=["role", "target_year"], name="idx_ml_snapshots_role_year"),
+            models.Index(fields=["teacher_id", "target_year"], name="idx_ml_snapshots_teacher_year"),
+        ]
+
+    def __str__(self):
+        return f"{self.target_year} | {self.scope} | {self.scope_key} | {self.predicted_kpi}"

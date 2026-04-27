@@ -236,3 +236,60 @@ def get_kpi_analytics(department: str | None = None, role: str | None = None, te
     except requests.exceptions.RequestException as e:
         logger.warning(f"ML service analytics failed: {e}")
         return None
+
+
+def get_prediction_snapshots(
+    year: int,
+    department: str | None = None,
+    role: str | None = None,
+    teacher_id: int | None = None,
+) -> dict | None:
+    """
+    Читает предрасчитанные прогнозы из /api/snapshots/.
+    На дашбордах это быстрее и стабильнее, чем дергать live-predict на каждый фильтр.
+    """
+    params = {"year": int(year)}
+    if department:
+        params["department"] = department
+    if role:
+        params["role"] = role
+    if teacher_id is not None:
+        params["teacher_id"] = int(teacher_id)
+
+    try:
+        resp = _SESSION.get(
+            f"{ML_SERVICE_URL}/api/snapshots/",
+            params=params,
+            headers=_headers(),
+            timeout=(ML_CONNECT_TIMEOUT, ML_READ_TIMEOUT),
+        )
+        resp.raise_for_status()
+        return resp.json()
+    except requests.exceptions.RequestException as e:
+        logger.warning(f"ML service snapshots read failed: {e}")
+        return None
+
+
+def rebuild_prediction_snapshots(base_year: int | None = None, target_year: int | None = None) -> dict:
+    """
+    Принудительный пересчет snapshot-прогнозов.
+    Обычно не нужен, т.к. finalize в ML теперь обновляет snapshots автоматически.
+    """
+    payload = {}
+    if base_year is not None:
+        payload["base_year"] = int(base_year)
+    if target_year is not None:
+        payload["target_year"] = int(target_year)
+
+    try:
+        resp = _SESSION.post(
+            f"{ML_SERVICE_URL}/api/snapshots/rebuild/",
+            json=payload,
+            headers=_headers(),
+            timeout=(ML_CONNECT_TIMEOUT, max(ML_READ_TIMEOUT, 30)),
+        )
+        resp.raise_for_status()
+        return resp.json()
+    except requests.exceptions.RequestException as e:
+        logger.error(f"ML service snapshots rebuild failed: {e}")
+        raise

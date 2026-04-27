@@ -2,6 +2,7 @@
 set -e
 
 python manage.py migrate --noinput
+python manage.py ensure_admin
 
 BOOTSTRAP_ON_START=$(printf '%s' "${ML_BOOTSTRAP_ON_START:-true}" | tr '[:upper:]' '[:lower:]')
 if [ "$BOOTSTRAP_ON_START" = "1" ] || [ "$BOOTSTRAP_ON_START" = "true" ] || [ "$BOOTSTRAP_ON_START" = "yes" ] || [ "$BOOTSTRAP_ON_START" = "on" ]; then

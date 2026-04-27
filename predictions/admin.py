@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.utils.html import format_html
 from django.contrib import messages
-from .models import FinalizeRequest, KPIRecord, ModelVersion, PredictionLog
+from .models import FinalizeRequest, KPIRecord, ModelVersion, PredictionLog, PredictionSnapshot
 from . import services
 
 
@@ -111,6 +111,32 @@ class FinalizeRequestAdmin(admin.ModelAdmin):
     search_fields = ("idempotency_key",)
     readonly_fields = [f.name for f in FinalizeRequest._meta.fields]
     ordering = ("-created_at",)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(PredictionSnapshot)
+class PredictionSnapshotAdmin(admin.ModelAdmin):
+    list_display = (
+        "target_year",
+        "base_year",
+        "scope",
+        "department",
+        "role",
+        "teacher_id",
+        "predicted_kpi",
+        "records_count",
+        "model_version",
+        "updated_at",
+    )
+    list_filter = ("target_year", "scope", "department", "role")
+    search_fields = ("scope_key", "department", "role", "teacher_id")
+    readonly_fields = [f.name for f in PredictionSnapshot._meta.fields]
+    ordering = ("-target_year", "scope", "scope_key")
 
     def has_add_permission(self, request):
         return False

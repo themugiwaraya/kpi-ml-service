@@ -32,3 +32,15 @@ class FinalizeRecordSerializer(serializers.Serializer):
 class FinalizeInputSerializer(serializers.Serializer):
     year = serializers.IntegerField()
     records = FinalizeRecordSerializer(many=True)
+
+
+class SnapshotRebuildInputSerializer(serializers.Serializer):
+    base_year = serializers.IntegerField(required=False)
+    target_year = serializers.IntegerField(required=False)
+
+
+class SnapshotQuerySerializer(serializers.Serializer):
+    year = serializers.IntegerField(required=True)
+    department = serializers.CharField(max_length=200, required=False, allow_blank=True)
+    role = serializers.CharField(max_length=50, required=False, allow_blank=True)
+    teacher_id = serializers.IntegerField(required=False)

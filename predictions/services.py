@@ -492,6 +492,263 @@ def get_analytics(filters: dict) -> dict:
 
 
 # ──────────────────────────────────────────────
+# SNAPSHOTS (precomputed predictions for fast reads)
+# ──────────────────────────────────────────────
+
+def _snapshot_scope_key(scope: str, *, department: str = "", role: str = "", teacher_id: int | None = None) -> str:
+    if scope == "overall":
+        return "overall"
+    if scope == "department":
+        return f"department:{department}"
+    if scope == "role":
+        return f"role:{role}"
+    if scope == "department_role":
+        return f"department_role:{department}|{role}"
+    if scope == "teacher":
+        return f"teacher:{teacher_id}"
+    raise ValueError(f"Unsupported snapshot scope: {scope}")
+
+
+def rebuild_prediction_snapshots(base_year: int | None = None, target_year: int | None = None) -> dict:
+    """
+    Пересчитывает и сохраняет snapshot-прогнозы на target_year.
+    Источник признаков: KPIRecord за base_year.
+    """
+    from .models import KPIRecord, PredictionSnapshot
+
+    all_years = list(KPIRecord.objects.order_by("year").values_list("year", flat=True).distinct())
+    if not all_years:
+        raise ValueError("No KPI data found to build snapshots")
+
+    if base_year is None:
+        base_year = all_years[-1]
+    if target_year is None:
+        target_year = base_year + 1
+
+    excluded = _excluded_roles()
+    base_qs = KPIRecord.objects.filter(year=base_year).exclude(role__in=excluded).values(
+        "teacher_id",
+        "department",
+        "role",
+        "experience_years",
+        *BLOCK_FEATURES,
+    )
+
+    base_df = pd.DataFrame(base_qs)
+    if base_df.empty:
+        raise ValueError(f"No KPI records found for base_year={base_year}")
+
+    base_df = _normalize_dataframe_blocks(base_df)
+
+    pipeline = get_active_pipeline()
+    model_version = get_active_model_version()
+    predicted = pipeline.predict(base_df[FEATURES])
+    predicted = np.clip(predicted, 0, 100)
+
+    pred_df = base_df.copy()
+    pred_df["predicted_kpi"] = np.round(predicted.astype(float), 2)
+
+    snapshots_to_create = []
+
+    # Overall snapshot
+    overall_value = round(float(pred_df["predicted_kpi"].mean()), 2)
+    snapshots_to_create.append(
+        PredictionSnapshot(
+            target_year=target_year,
+            base_year=base_year,
+            scope="overall",
+            scope_key=_snapshot_scope_key("overall"),
+            predicted_kpi=overall_value,
+            records_count=int(len(pred_df)),
+            model_version=model_version,
+        )
+    )
+
+    # Department snapshots
+    dep_count = 0
+    dep_groups = pred_df.groupby("department", dropna=False)["predicted_kpi"].agg(["mean", "count"]).reset_index()
+    for _, row in dep_groups.iterrows():
+        department = str(row["department"] or "").strip()
+        snapshots_to_create.append(
+            PredictionSnapshot(
+                target_year=target_year,
+                base_year=base_year,
+                scope="department",
+                scope_key=_snapshot_scope_key("department", department=department),
+                department=department,
+                predicted_kpi=round(float(row["mean"]), 2),
+                records_count=int(row["count"]),
+                model_version=model_version,
+            )
+        )
+        dep_count += 1
+
+    # Role snapshots
+    role_count = 0
+    role_groups = pred_df.groupby("role", dropna=False)["predicted_kpi"].agg(["mean", "count"]).reset_index()
+    for _, row in role_groups.iterrows():
+        role = str(row["role"] or "").strip()
+        snapshots_to_create.append(
+            PredictionSnapshot(
+                target_year=target_year,
+                base_year=base_year,
+                scope="role",
+                scope_key=_snapshot_scope_key("role", role=role),
+                role=role,
+                predicted_kpi=round(float(row["mean"]), 2),
+                records_count=int(row["count"]),
+                model_version=model_version,
+            )
+        )
+        role_count += 1
+
+    # Department + role snapshots
+    dep_role_count = 0
+    dep_role_groups = (
+        pred_df.groupby(["department", "role"], dropna=False)["predicted_kpi"]
+        .agg(["mean", "count"])
+        .reset_index()
+    )
+    for _, row in dep_role_groups.iterrows():
+        department = str(row["department"] or "").strip()
+        role = str(row["role"] or "").strip()
+        snapshots_to_create.append(
+            PredictionSnapshot(
+                target_year=target_year,
+                base_year=base_year,
+                scope="department_role",
+                scope_key=_snapshot_scope_key("department_role", department=department, role=role),
+                department=department,
+                role=role,
+                predicted_kpi=round(float(row["mean"]), 2),
+                records_count=int(row["count"]),
+                model_version=model_version,
+            )
+        )
+        dep_role_count += 1
+
+    # Per-teacher snapshots (for point lookup on dashboard)
+    teacher_count = 0
+    for _, row in pred_df.iterrows():
+        teacher_id = int(row["teacher_id"])
+        department = str(row.get("department") or "").strip()
+        role = str(row.get("role") or "").strip()
+        snapshots_to_create.append(
+            PredictionSnapshot(
+                target_year=target_year,
+                base_year=base_year,
+                scope="teacher",
+                scope_key=_snapshot_scope_key("teacher", teacher_id=teacher_id),
+                department=department,
+                role=role,
+                teacher_id=teacher_id,
+                predicted_kpi=round(float(row["predicted_kpi"]), 2),
+                records_count=1,
+                model_version=model_version,
+            )
+        )
+        teacher_count += 1
+
+    with transaction.atomic():
+        PredictionSnapshot.objects.filter(target_year=target_year).delete()
+        PredictionSnapshot.objects.bulk_create(snapshots_to_create, batch_size=1000)
+
+    return {
+        "status": "ok",
+        "base_year": base_year,
+        "target_year": target_year,
+        "model_version": model_version.version if model_version else None,
+        "total_snapshots": len(snapshots_to_create),
+        "counts": {
+            "overall": 1,
+            "department": dep_count,
+            "role": role_count,
+            "department_role": dep_role_count,
+            "teacher": teacher_count,
+        },
+    }
+
+
+def get_prediction_snapshots(
+    *,
+    target_year: int,
+    department: str = "",
+    role: str = "",
+    teacher_id: int | None = None,
+) -> dict:
+    """Возвращает предрасчитанные snapshot-прогнозы на target_year."""
+    from .models import PredictionSnapshot
+
+    qs = PredictionSnapshot.objects.filter(target_year=target_year)
+    if not qs.exists():
+        raise ValueError(f"No prediction snapshots found for year={target_year}")
+
+    def _row(item: PredictionSnapshot) -> dict:
+        return {
+            "scope": item.scope,
+            "predicted_kpi": item.predicted_kpi,
+            "records_count": item.records_count,
+            "department": item.department,
+            "role": item.role,
+            "teacher_id": item.teacher_id,
+        }
+
+    overall_item = qs.filter(scope="overall").order_by("-updated_at").first()
+    overall = _row(overall_item) if overall_item else None
+
+    by_department = [_row(i) for i in qs.filter(scope="department").order_by("department")]
+    by_role = [_row(i) for i in qs.filter(scope="role").order_by("role")]
+    by_department_role = [_row(i) for i in qs.filter(scope="department_role").order_by("department", "role")]
+
+    filtered_prediction = None
+    dep = (department or "").strip()
+    rl = (role or "").strip()
+    if dep and rl:
+        item = qs.filter(scope="department_role", department__iexact=dep, role__iexact=rl).first()
+        filtered_prediction = _row(item) if item else None
+    elif dep:
+        item = qs.filter(scope="department", department__iexact=dep).first()
+        filtered_prediction = _row(item) if item else None
+    elif rl:
+        item = qs.filter(scope="role", role__iexact=rl).first()
+        filtered_prediction = _row(item) if item else None
+
+    teacher_prediction = None
+    if teacher_id is not None:
+        item = qs.filter(scope="teacher", teacher_id=teacher_id).first()
+        teacher_prediction = _row(item) if item else None
+
+    latest = qs.order_by("-updated_at").first()
+    model_version = None
+    if latest and latest.model_version:
+        model_version = latest.model_version.version
+
+    return {
+        "year": target_year,
+        "model_version": model_version,
+        "generated_at": latest.updated_at if latest else None,
+        "overall": overall,
+        "by_department": by_department,
+        "by_role": by_role,
+        "by_department_role": by_department_role,
+        "filtered_prediction": filtered_prediction,
+        "teacher_prediction": teacher_prediction,
+    }
+
+
+def _refresh_year_snapshots_safe(year: int) -> dict:
+    try:
+        return rebuild_prediction_snapshots(base_year=year, target_year=year + 1)
+    except Exception as exc:
+        logger.exception("Snapshot refresh failed after finalize")
+        return {
+            "status": "failed",
+            "target_year": year + 1,
+            "error": str(exc),
+        }
+
+
+# ──────────────────────────────────────────────
 # FINALIZATION (конец года)
 # ──────────────────────────────────────────────
 
@@ -558,11 +815,13 @@ def finalize_year(year: int, records: list[dict], idempotency_key: str) -> dict:
     new_records = [_normalize_record_blocks(r) for r in new_records]
 
     if not new_records:
+        snapshot_refresh = _refresh_year_snapshots_safe(year)
         payload = {
             "status": "skipped",
             "message": f"All records for {year} already exist",
             "new_records": 0,
             "idempotency_key": idempotency_key,
+            "snapshots": snapshot_refresh,
         }
         request_row.status = "completed"
         request_row.response_payload = payload
@@ -599,11 +858,13 @@ def finalize_year(year: int, records: list[dict], idempotency_key: str) -> dict:
         test_year   = year
 
         if len(train_years) < 2:
+            snapshot_refresh = _refresh_year_snapshots_safe(year)
             payload = {
                 "status":  "data_saved",
                 "message": f"Saved {len(new_records)} records. Not enough years to retrain yet.",
                 "new_records": len(new_records),
                 "idempotency_key": idempotency_key,
+                "snapshots": snapshot_refresh,
             }
             request_row.status = "completed"
             request_row.response_payload = payload
@@ -611,6 +872,7 @@ def finalize_year(year: int, records: list[dict], idempotency_key: str) -> dict:
             return payload
 
         version = train_and_save(train_years, test_year, model_type="random_forest")
+        snapshot_refresh = _refresh_year_snapshots_safe(year)
 
         payload = {
             "status":       "retrained",
@@ -622,6 +884,7 @@ def finalize_year(year: int, records: list[dict], idempotency_key: str) -> dict:
                 "RMSE": version.rmse,
                 "R2":   version.r2,
             },
+            "snapshots": snapshot_refresh,
         }
         request_row.status = "completed"
         request_row.response_payload = payload

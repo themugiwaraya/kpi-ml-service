@@ -9,7 +9,12 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .serializers import FinalizeInputSerializer, PredictInputSerializer
+from .serializers import (
+    FinalizeInputSerializer,
+    PredictInputSerializer,
+    SnapshotQuerySerializer,
+    SnapshotRebuildInputSerializer,
+)
 from . import services
 
 logger = logging.getLogger(__name__)
@@ -276,6 +281,70 @@ class AnalyticsView(APIView):
             return _response({"error": str(e)}, request_id=request_id, status_code=status.HTTP_404_NOT_FOUND)
         except Exception as e:
             logger.exception("Analytics error")
+            return _response({"error": str(e)}, request_id=request_id, status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class SnapshotView(APIView):
+    """
+    GET /snapshots/?year=2026[&department=...][&role=...][&teacher_id=...]
+    Возвращает предрасчитанные прогнозы из БД, без повторного инференса модели.
+    """
+
+    @require_api_key
+    def get(self, request):
+        request_id = _request_id(request)
+
+        serializer = SnapshotQuerySerializer(data=request.query_params)
+        if not serializer.is_valid():
+            return _response(serializer.errors, request_id=request_id, status_code=status.HTTP_400_BAD_REQUEST)
+
+        year = serializer.validated_data["year"]
+        department = serializer.validated_data.get("department", "")
+        role = serializer.validated_data.get("role", "")
+        teacher_id = serializer.validated_data.get("teacher_id")
+
+        try:
+            payload = services.get_prediction_snapshots(
+                target_year=year,
+                department=department,
+                role=role,
+                teacher_id=teacher_id,
+            )
+            return _response(payload, request_id=request_id)
+        except ValueError as e:
+            return _response({"error": str(e)}, request_id=request_id, status_code=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            logger.exception("Snapshot read error")
+            return _response({"error": str(e)}, request_id=request_id, status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class SnapshotRebuildView(APIView):
+    """
+    POST /snapshots/rebuild/
+    Header: X-API-Key
+    Body: {"base_year": 2025, "target_year": 2026}
+    """
+
+    @require_api_key
+    def post(self, request):
+        request_id = _request_id(request)
+
+        serializer = SnapshotRebuildInputSerializer(data=request.data)
+        if not serializer.is_valid():
+            return _response(serializer.errors, request_id=request_id, status_code=status.HTTP_400_BAD_REQUEST)
+
+        base_year = serializer.validated_data.get("base_year")
+        target_year = serializer.validated_data.get("target_year")
+
+        try:
+            payload = services.rebuild_prediction_snapshots(base_year=base_year, target_year=target_year)
+            return _response(payload, request_id=request_id)
+        except ValueError as e:
+            return _response({"error": str(e)}, request_id=request_id, status_code=status.HTTP_400_BAD_REQUEST)
+        except RuntimeError as e:
+            return _response({"error": str(e)}, request_id=request_id, status_code=status.HTTP_503_SERVICE_UNAVAILABLE)
+        except Exception as e:
+            logger.exception("Snapshot rebuild error")
             return _response({"error": str(e)}, request_id=request_id, status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 

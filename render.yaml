@@ -22,6 +22,18 @@ services:
         value: "ml-models"
       - key: ML_API_KEY
         sync: false
+      - key: DJANGO_SUPERUSER_CREATE
+        value: "false"
+      - key: DJANGO_SUPERUSER_USERNAME
+        sync: false
+      - key: DJANGO_SUPERUSER_EMAIL
+        sync: false
+      - key: DJANGO_SUPERUSER_PASSWORD
+        sync: false
+      - key: DJANGO_SUPERUSER_UPDATE_PASSWORD
+        value: "false"
+      - key: DJANGO_SUPERUSER_STRICT
+        value: "false"
       - key: ML_MAX_PREDICT_BATCH
         value: "1000"
       - key: ML_EXCLUDED_ROLES
