@@ -464,12 +464,11 @@ def get_analytics(filters: dict) -> dict:
     if prediction_value is None:
         years = grouped["year"].to_numpy(dtype=float)
         values = grouped[TARGET].to_numpy(dtype=float)
-        if len(values) == 1:
-            raw_pred = float(values[0])
-        else:
+        if len(values) >= 2:
             slope, intercept = np.polyfit(years, values, 1)
             raw_pred = float(slope * next_year + intercept)
-        prediction_value = round(min(max(raw_pred, 0.0), 100.0), 2)
+            prediction_value = round(min(max(raw_pred, 0.0), 100.0), 2)
+            prediction_source = "trend_fallback"
 
     applied_filters = {}
     if department:
@@ -526,7 +525,20 @@ def rebuild_prediction_snapshots(base_year: int | None = None, target_year: int 
         target_year = base_year + 1
 
     excluded = _excluded_roles()
-    base_qs = KPIRecord.objects.filter(year=base_year).exclude(role__in=excluded).values(
+    
+    # Фильтруем преподавателей, у которых есть хотя бы 2 года истории
+    from django.db.models import Count
+    valid_teachers = set(
+        KPIRecord.objects.values("teacher_id")
+        .annotate(years_count=Count("year", distinct=True))
+        .filter(years_count__gte=2)
+        .values_list("teacher_id", flat=True)
+    )
+
+    base_qs = KPIRecord.objects.filter(
+        year=base_year,
+        teacher_id__in=valid_teachers
+    ).exclude(role__in=excluded).values(
         "teacher_id",
         "department",
         "role",
