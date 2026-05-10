@@ -74,7 +74,7 @@ ML_EXCLUDED_ROLES   = HR,ADMIN,COMMISSION
 ML_BOOTSTRAP_ON_START = true
 ML_BOOTSTRAP_LOAD_DATASET = true
 ML_BOOTSTRAP_TRAIN   = true
-ML_BOOTSTRAP_MODEL_TYPES = linear_regression,random_forest
+ML_BOOTSTRAP_MODEL_TYPES = linear_regression,random_forest,decision_tree
 ML_BOOTSTRAP_PRIMARY_MODEL_TYPE = random_forest
 ML_BOOTSTRAP_STRICT  = false
 ```

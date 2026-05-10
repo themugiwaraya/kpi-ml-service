@@ -45,7 +45,7 @@ services:
       - key: ML_BOOTSTRAP_TRAIN
         value: "true"
       - key: ML_BOOTSTRAP_MODEL_TYPES
-        value: "linear_regression,random_forest"
+        value: "linear_regression,random_forest,decision_tree"
       - key: ML_BOOTSTRAP_PRIMARY_MODEL_TYPE
         value: "random_forest"
       - key: ML_BOOTSTRAP_STRICT

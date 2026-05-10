@@ -9,7 +9,7 @@ from predictions.models import KPIRecord, ModelVersion
 
 
 TRUE_VALUES = {"1", "true", "yes", "on"}
-VALID_MODEL_TYPES = ("random_forest", "linear_regression")
+VALID_MODEL_TYPES = ("random_forest", "linear_regression", "decision_tree")
 
 
 def _env_bool(name: str, default: bool) -> bool:

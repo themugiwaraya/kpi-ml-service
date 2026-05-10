@@ -12,7 +12,7 @@ class Command(BaseCommand):
             "--model-type",
             type=str,
             default="random_forest",
-            choices=["random_forest", "linear_regression"],
+            choices=["random_forest", "linear_regression", "decision_tree"],
             help="Model type",
         )
 

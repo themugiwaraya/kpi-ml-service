@@ -23,6 +23,7 @@ from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder
+from sklearn.tree import DecisionTreeRegressor
 
 from .role_block_config import (
     BLOCK_FEATURES,
@@ -232,6 +233,8 @@ def _build_pipeline(model_type: str):
         )
     elif model_type == "linear_regression":
         estimator = LinearRegression()
+    elif model_type == "decision_tree":
+        estimator = DecisionTreeRegressor(random_state=42)
     else:
         raise ValueError(f"Unknown model_type: {model_type}")
 

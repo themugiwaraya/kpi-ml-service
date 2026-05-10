@@ -38,6 +38,9 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
+SESSION_COOKIE_NAME = "ml_sessionid"
+CSRF_COOKIE_NAME = "ml_csrftoken"
+
 ROOT_URLCONF = "config.urls"
 
 TEMPLATES = [

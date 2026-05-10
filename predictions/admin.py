@@ -32,7 +32,7 @@ class ModelVersionAdmin(admin.ModelAdmin):
                         "train_years", "train_records", "test_year",
                         "mae", "rmse", "r2", "created_at", "trained_at")
     ordering      = ("-created_at",)
-    actions       = ["train_random_forest", "train_linear_regression"]
+    actions       = ["train_random_forest", "train_linear_regression", "train_decision_tree"]
 
     def status_badge(self, obj):
         colors = {"active": "green", "archived": "grey", "training": "orange"}
@@ -49,6 +49,10 @@ class ModelVersionAdmin(admin.ModelAdmin):
     @admin.action(description="📈 Train NEW Linear Regression model")
     def train_linear_regression(self, request, queryset):
         self._run_training(request, "linear_regression")
+
+    @admin.action(description="🌳 Train NEW Decision Tree model")
+    def train_decision_tree(self, request, queryset):
+        self._run_training(request, "decision_tree")
 
     def _run_training(self, request, model_type: str):
         from .models import KPIRecord
