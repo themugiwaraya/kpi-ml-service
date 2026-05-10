@@ -156,6 +156,7 @@ class PredictionSnapshot(models.Model):
     teacher_id = models.IntegerField(null=True, blank=True)
 
     predicted_kpi = models.FloatField()
+    comparison = models.JSONField(default=dict, blank=True)
     records_count = models.IntegerField(default=0)
 
     model_version = models.ForeignKey(

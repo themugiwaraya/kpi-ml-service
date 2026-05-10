@@ -2,6 +2,7 @@ import logging
 import hmac
 import time
 import uuid
+import math
 from functools import wraps
 from django.conf import settings
 from django.db import connection
@@ -48,6 +49,10 @@ def _response(payload, request_id: str, status_code=status.HTTP_200_OK, extra_he
             resp[key] = str(value)
     return resp
 
+def _safe_float(val):
+    if val is None or math.isnan(val):
+        return None
+    return val
 
 # ──────────────────────────────────────────────
 # VIEWS
@@ -93,7 +98,7 @@ class HealthView(APIView):
             "active_model": {
                 "version":    active.version    if active else None,
                 "model_type": active.model_type if active else None,
-                "r2":         active.r2         if active else None,
+                "r2":         _safe_float(active.r2) if active else None,
                 "trained_at": active.trained_at if active else None,
             }
         }, request_id=request_id)
@@ -226,9 +231,9 @@ class MetricsView(APIView):
                 "status":      v.status,
                 "train_years": v.train_years,
                 "test_year":   v.test_year,
-                "mae":         v.mae,
-                "rmse":        v.rmse,
-                "r2":          v.r2,
+                "mae":         _safe_float(v.mae),
+                "rmse":        _safe_float(v.rmse),
+                "r2":          _safe_float(v.r2),
                 "trained_at":  v.trained_at,
             }
             for v in versions

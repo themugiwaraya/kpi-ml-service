@@ -600,10 +600,25 @@ def rebuild_prediction_snapshots(base_year: int | None = None, target_year: int 
     pred_df = base_df.copy()
     pred_df["predicted_kpi"] = np.round(predicted.astype(float), 2)
 
+    comp_pipelines = {
+        mt: get_latest_model_pipeline(mt) 
+        for mt in ["linear_regression", "decision_tree"]
+    }
+    for mt, cp in comp_pipelines.items():
+        if cp:
+            comp_preds = cp.predict(base_df[FEATURES])
+            comp_preds = np.clip(comp_preds, 0, 100)
+            pred_df[f"comp_{mt}"] = np.round(comp_preds.astype(float), 2)
+
     snapshots_to_create = []
 
     # Overall snapshot
     overall_value = round(float(pred_df["predicted_kpi"].mean()), 2)
+    overall_comp = {}
+    for mt in ["linear_regression", "decision_tree"]:
+        if f"comp_{mt}" in pred_df:
+            overall_comp[mt] = round(float(pred_df[f"comp_{mt}"].mean()), 2)
+
     snapshots_to_create.append(
         PredictionSnapshot(
             target_year=target_year,
@@ -611,6 +626,7 @@ def rebuild_prediction_snapshots(base_year: int | None = None, target_year: int 
             scope="overall",
             scope_key=_snapshot_scope_key("overall"),
             predicted_kpi=overall_value,
+            comparison=overall_comp,
             records_count=int(len(pred_df)),
             model_version=model_version,
         )
@@ -618,9 +634,19 @@ def rebuild_prediction_snapshots(base_year: int | None = None, target_year: int 
 
     # Department snapshots
     dep_count = 0
-    dep_groups = pred_df.groupby("department", dropna=False)["predicted_kpi"].agg(["mean", "count"]).reset_index()
+    agg_kwargs = {"predicted_kpi": ("predicted_kpi", "mean"), "count": ("predicted_kpi", "count")}
+    for mt in ["linear_regression", "decision_tree"]:
+        if f"comp_{mt}" in pred_df:
+            agg_kwargs[f"comp_{mt}"] = (f"comp_{mt}", "mean")
+            
+    dep_groups = pred_df.groupby("department", dropna=False).agg(**agg_kwargs).reset_index()
     for _, row in dep_groups.iterrows():
         department = str(row["department"] or "").strip()
+        comp = {}
+        for mt in ["linear_regression", "decision_tree"]:
+            if f"comp_{mt}" in row and pd.notna(row[f"comp_{mt}"]):
+                comp[mt] = round(float(row[f"comp_{mt}"]), 2)
+
         snapshots_to_create.append(
             PredictionSnapshot(
                 target_year=target_year,
@@ -628,7 +654,8 @@ def rebuild_prediction_snapshots(base_year: int | None = None, target_year: int 
                 scope="department",
                 scope_key=_snapshot_scope_key("department", department=department),
                 department=department,
-                predicted_kpi=round(float(row["mean"]), 2),
+                predicted_kpi=round(float(row["predicted_kpi"]), 2),
+                comparison=comp,
                 records_count=int(row["count"]),
                 model_version=model_version,
             )
@@ -637,9 +664,14 @@ def rebuild_prediction_snapshots(base_year: int | None = None, target_year: int 
 
     # Role snapshots
     role_count = 0
-    role_groups = pred_df.groupby("role", dropna=False)["predicted_kpi"].agg(["mean", "count"]).reset_index()
+    role_groups = pred_df.groupby("role", dropna=False).agg(**agg_kwargs).reset_index()
     for _, row in role_groups.iterrows():
         role = str(row["role"] or "").strip()
+        comp = {}
+        for mt in ["linear_regression", "decision_tree"]:
+            if f"comp_{mt}" in row and pd.notna(row[f"comp_{mt}"]):
+                comp[mt] = round(float(row[f"comp_{mt}"]), 2)
+
         snapshots_to_create.append(
             PredictionSnapshot(
                 target_year=target_year,
@@ -647,7 +679,8 @@ def rebuild_prediction_snapshots(base_year: int | None = None, target_year: int 
                 scope="role",
                 scope_key=_snapshot_scope_key("role", role=role),
                 role=role,
-                predicted_kpi=round(float(row["mean"]), 2),
+                predicted_kpi=round(float(row["predicted_kpi"]), 2),
+                comparison=comp,
                 records_count=int(row["count"]),
                 model_version=model_version,
             )
@@ -656,14 +689,15 @@ def rebuild_prediction_snapshots(base_year: int | None = None, target_year: int 
 
     # Department + role snapshots
     dep_role_count = 0
-    dep_role_groups = (
-        pred_df.groupby(["department", "role"], dropna=False)["predicted_kpi"]
-        .agg(["mean", "count"])
-        .reset_index()
-    )
+    dep_role_groups = pred_df.groupby(["department", "role"], dropna=False).agg(**agg_kwargs).reset_index()
     for _, row in dep_role_groups.iterrows():
         department = str(row["department"] or "").strip()
         role = str(row["role"] or "").strip()
+        comp = {}
+        for mt in ["linear_regression", "decision_tree"]:
+            if f"comp_{mt}" in row and pd.notna(row[f"comp_{mt}"]):
+                comp[mt] = round(float(row[f"comp_{mt}"]), 2)
+
         snapshots_to_create.append(
             PredictionSnapshot(
                 target_year=target_year,
@@ -672,7 +706,8 @@ def rebuild_prediction_snapshots(base_year: int | None = None, target_year: int 
                 scope_key=_snapshot_scope_key("department_role", department=department, role=role),
                 department=department,
                 role=role,
-                predicted_kpi=round(float(row["mean"]), 2),
+                predicted_kpi=round(float(row["predicted_kpi"]), 2),
+                comparison=comp,
                 records_count=int(row["count"]),
                 model_version=model_version,
             )
@@ -685,6 +720,11 @@ def rebuild_prediction_snapshots(base_year: int | None = None, target_year: int 
         teacher_id = int(row["teacher_id"])
         department = str(row.get("department") or "").strip()
         role = str(row.get("role") or "").strip()
+        comp = {}
+        for mt in ["linear_regression", "decision_tree"]:
+            if f"comp_{mt}" in row and pd.notna(row[f"comp_{mt}"]):
+                comp[mt] = round(float(row[f"comp_{mt}"]), 2)
+
         snapshots_to_create.append(
             PredictionSnapshot(
                 target_year=target_year,
@@ -695,6 +735,7 @@ def rebuild_prediction_snapshots(base_year: int | None = None, target_year: int 
                 role=role,
                 teacher_id=teacher_id,
                 predicted_kpi=round(float(row["predicted_kpi"]), 2),
+                comparison=comp,
                 records_count=1,
                 model_version=model_version,
             )
@@ -739,6 +780,7 @@ def get_prediction_snapshots(
         return {
             "scope": item.scope,
             "predicted_kpi": item.predicted_kpi,
+            "comparison": item.comparison,
             "records_count": item.records_count,
             "department": item.department,
             "role": item.role,
