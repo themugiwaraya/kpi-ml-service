@@ -201,6 +201,18 @@ def invalidate_active_pipeline():
     _active_model_version = None
 
 
+def get_latest_model_pipeline(model_type: str):
+    """Возвращает последний обученный pipeline указанного типа (active или archived)."""
+    from .models import ModelVersion
+    try:
+        version = ModelVersion.objects.filter(model_type=model_type, status__in=["active", "archived"]).order_by("-trained_at").first()
+        if version:
+            return download_model_from_storage(version.storage_path)
+    except Exception as exc:
+        logger.warning(f"Could not load latest model pipeline for {model_type}: {exc}")
+    return None
+
+
 def check_storage_access() -> bool:
     """Проверяет доступность Supabase Storage bucket."""
     if not _storage_enabled():
@@ -342,6 +354,13 @@ def predict_one(data: dict) -> dict:
     predicted = float(pipeline.predict(df)[0])
     predicted = round(min(max(predicted, 0), 100), 2)
 
+    comparison = {}
+    for mt in ["linear_regression", "decision_tree"]:
+        comp_pipeline = get_latest_model_pipeline(mt)
+        if comp_pipeline:
+            comp_pred = float(comp_pipeline.predict(df)[0])
+            comparison[mt] = round(min(max(comp_pred, 0), 100), 2)
+
     blocks      = [normalized_data.get(f"block_{i}", 0) for i in range(1, 5)]
     current_sum = round(sum(blocks), 2)
     gap         = round(predicted - current_sum, 2)
@@ -362,6 +381,7 @@ def predict_one(data: dict) -> dict:
         "gap":              gap,
         "gap_interpretation": interpretation,
         "model_version":    model_version.version if model_version else None,
+        "comparison":       comparison,
     }
 
 
@@ -377,6 +397,16 @@ def predict_batch(records: list[dict]) -> list[dict]:
     df = pd.DataFrame(normalized_records)[FEATURES]
 
     preds = pipeline.predict(df)
+    
+    comp_pipelines = {
+        mt: get_latest_model_pipeline(mt) 
+        for mt in ["linear_regression", "decision_tree"]
+    }
+    comp_preds = {}
+    for mt, cp in comp_pipelines.items():
+        if cp:
+            comp_preds[mt] = cp.predict(df)
+
     results = []
 
     for i, rec in enumerate(normalized_records):
@@ -385,6 +415,12 @@ def predict_batch(records: list[dict]) -> list[dict]:
         current_sum = round(sum(blocks), 2)
         gap         = round(predicted - current_sum, 2)
 
+        comparison = {}
+        for mt, cp in comp_pipelines.items():
+            if cp:
+                comp_val = float(comp_preds[mt][i])
+                comparison[mt] = round(min(max(comp_val, 0), 100), 2)
+
         results.append({
             "teacher_id":    rec.get("teacher_id"),
             "role":          rec.get("role"),
@@ -392,6 +428,7 @@ def predict_batch(records: list[dict]) -> list[dict]:
             "predicted_kpi": predicted,
             "current_sum":   current_sum,
             "gap":           gap,
+            "comparison":    comparison,
             "model_version": model_version.version if model_version else None,
             "gap_interpretation": (
                 "Growth potential" if gap > 3 else
@@ -886,6 +923,14 @@ def finalize_year(year: int, records: list[dict], idempotency_key: str) -> dict:
             request_row.save(update_fields=["status", "response_payload", "updated_at"])
             return payload
 
+        # Обучаем дополнительные модели для истории и сравнения
+        for m_type in ["linear_regression", "decision_tree"]:
+            try:
+                train_and_save(train_years, test_year, model_type=m_type)
+            except Exception as exc:
+                logger.error(f"Failed to train comparison model {m_type} during finalize: {exc}")
+
+        # Обучаем основную модель (она станет active, так как запускается последней)
         version = train_and_save(train_years, test_year, model_type="random_forest")
         snapshot_refresh = _refresh_year_snapshots_safe(year)
 
