@@ -581,19 +581,13 @@ def rebuild_prediction_snapshots(base_year: int | None = None, target_year: int 
         target_year = base_year + 1
 
     excluded = _excluded_roles()
-    
-    # Фильтруем преподавателей, у которых есть хотя бы 2 года истории
-    from django.db.models import Count
-    valid_teachers = set(
-        KPIRecord.objects.values("teacher_id")
-        .annotate(years_count=Count("year", distinct=True))
-        .filter(years_count__gte=2)
-        .values_list("teacher_id", flat=True)
-    )
 
+    # Для построения snapshot-прогнозов НЕ нужна проверка на 2+ года истории.
+    # Фильтр по минимуму лет применяется только при ОБУЧЕНИИ модели (train_and_save),
+    # чтобы избежать переобучения на малом количестве данных.
+    # Здесь мы просто прогоняем текущие данные через уже обученную модель.
     base_qs = KPIRecord.objects.filter(
         year=base_year,
-        teacher_id__in=valid_teachers
     ).exclude(role__in=excluded).values(
         "teacher_id",
         "department",
