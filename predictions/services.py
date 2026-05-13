@@ -30,6 +30,12 @@ from .role_block_config import (
     applicable_blocks_for_role,
     normalize_role_name,
 )
+from .canonicalization import (
+    canonicalize_department,
+    canonicalize_role,
+    department_candidates,
+    role_candidates,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -457,9 +463,19 @@ def get_analytics(filters: dict) -> dict:
 
     qs = KPIRecord.objects.all()
     if department:
-        qs = qs.filter(department__iexact=department)
+        from django.db.models import Q
+        dep_candidates = department_candidates(department)
+        dep_query = Q()
+        for candidate in dep_candidates:
+            dep_query |= Q(department__iexact=candidate)
+        qs = qs.filter(dep_query)
     if role:
-        qs = qs.filter(role__iexact=role)
+        from django.db.models import Q
+        role_options = role_candidates(role)
+        role_query = Q()
+        for candidate in role_options:
+            role_query |= Q(role__iexact=candidate)
+        qs = qs.filter(role_query)
     if teacher_id is not None:
         qs = qs.filter(teacher_id=teacher_id)
 
@@ -512,9 +528,9 @@ def get_analytics(filters: dict) -> dict:
 
     applied_filters = {}
     if department:
-        applied_filters["department"] = department
+        applied_filters["department"] = canonicalize_department(department)
     if role:
-        applied_filters["role"] = role
+        applied_filters["role"] = canonicalize_role(role)
     if teacher_id is not None:
         applied_filters["teacher_id"] = teacher_id
 
@@ -591,6 +607,10 @@ def rebuild_prediction_snapshots(base_year: int | None = None, target_year: int 
         raise ValueError(f"No KPI records found for base_year={base_year}")
 
     base_df = _normalize_dataframe_blocks(base_df)
+    if "department" in base_df.columns:
+        base_df["department"] = base_df["department"].map(canonicalize_department)
+    if "role" in base_df.columns:
+        base_df["role"] = base_df["role"].map(canonicalize_role)
 
     pipeline = get_active_pipeline()
     model_version = get_active_model_version()
@@ -795,8 +815,8 @@ def get_prediction_snapshots(
     by_department_role = [_row(i) for i in qs.filter(scope="department_role").order_by("department", "role")]
 
     filtered_prediction = None
-    dep = (department or "").strip()
-    rl = (role or "").strip()
+    dep = canonicalize_department(department or "")
+    rl = canonicalize_role(role or "")
     if dep and rl:
         item = qs.filter(scope="department_role", department__iexact=dep, role__iexact=rl).first()
         filtered_prediction = _row(item) if item else None
